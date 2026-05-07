@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paris Country Club — Carte Partagée</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --navy: #1a2744;
+    --gold: #c9a84c;
+    --gold-light: #e8c97a;
+    --cream: #f8f4ec;
+    --green: #2d5a3d;
+    --green-light: #4a8a5e;
+    --red: #8b2c2c;
+    --orange: #c07a1a;
+    --grey: #8a8e96;
+    --white: #ffffff;
+    --shadow: 0 8px 40px rgba(26,39,68,0.13);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:var(--navy); min-height:100vh; color:var(--navy); overflow-x:hidden; }
+  body::before { content:''; position:fixed; inset:0; background-image: repeating-linear-gradient(0deg,transparent,transparent 60px,rgba(201,168,76,0.04) 60px,rgba(201,168,76,0.04) 61px), repeating-linear-gradient(90deg,transparent,transparent 60px,rgba(201,168,76,0.04) 60px,rgba(201,168,76,0.04) 61px); pointer-events:none; z-index:0; }
+  .app { max-width:1200px; margin:0 auto; padding:24px 16px 60px; position:relative; z-index:1; }
+
+  header { text-align:center; margin-bottom:28px; }
+  .logo-badge { display:inline-flex; align-items:center; gap:8px; background:linear-gradient(135deg,var(--gold),var(--gold-light)); color:var(--navy); font-family:'Playfair Display',serif; font-size:11px; font-weight:600; letter-spacing:2.5px; text-transform:uppercase; padding:6px 18px; border-radius:2px; margin-bottom:12px; }
+  h1 { font-family:'Playfair Display',serif; font-size:clamp(22px,4vw,40px); font-weight:700; color:var(--white); margin-bottom:4px; }
+  .subtitle { color:rgba(255,255,255,0.45); font-size:13px; }
+
+  .loader { display:flex; align-items:center; justify-content:center; padding:60px; color:rgba(255,255,255,0.5); font-size:14px; gap:10px; }
+  .spinner { width:20px; height:20px; border:2px solid rgba(255,255,255,0.2); border-top-color:var(--gold); border-radius:50%; animation:spin 0.8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .tabs { display:flex; gap:4px; margin-bottom:20px; }
+  .tab-btn { flex:1; padding:11px; background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.6); border:none; border-radius:10px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; cursor:pointer; transition:all 0.2s; }
+  .tab-btn.active { background:rgba(255,255,255,0.97); color:var(--navy); font-weight:600; box-shadow:var(--shadow); }
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+
+  .panel { background:rgba(255,255,255,0.97); border-radius:16px; padding:20px; box-shadow:var(--shadow); margin-bottom:16px; }
+  .panel-title { font-family:'Playfair Display',serif; font-size:17px; font-weight:600; color:var(--navy); margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+  .panel-title::before { content:''; width:4px; height:18px; background:linear-gradient(135deg,var(--gold),var(--gold-light)); border-radius:2px; }
+
+  .form-group { margin-bottom:12px; }
+  label { display:block; font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:1.2px; color:var(--grey); margin-bottom:4px; }
+  select, input[type="date"], input[type="time"], input[type="number"], input[type="text"] { width:100%; padding:9px 12px; border:1.5px solid rgba(26,39,68,0.12); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; color:var(--navy); background:var(--white); outline:none; transition:border-color 0.2s; appearance:none; }
+  select:focus, input:focus { border-color:var(--gold); }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .btn { width:100%; padding:11px; background:linear-gradient(135deg,var(--navy),#2a3d6e); color:var(--white); border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:500; cursor:pointer; transition:all 0.2s; margin-top:6px; }
+  .btn:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(26,39,68,0.3); }
+  .btn.btn-gold { background:linear-gradient(135deg,var(--gold),var(--gold-light)); color:var(--navy); font-weight:600; }
+  .btn.btn-red { background:linear-gradient(135deg,var(--red),#c0392b); color:var(--white); }
+  .btn.btn-grey { background:rgba(26,39,68,0.1); color:var(--navy); }
+  .btn.btn-sm { padding:7px 12px; font-size:12px; margin-top:0; width:auto; }
+  .btn:disabled { opacity:0.6; cursor:not-allowed; transform:none; }
+
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media(max-width:700px) { .grid-2{grid-template-columns:1fr;} }
+
+  .alert { padding:10px 14px; border-radius:8px; margin-bottom:12px; font-size:13px; font-weight:500; display:none; }
+  .alert.error { background:rgba(139,44,44,0.1); color:var(--red); border-left:3px solid var(--red); }
+  .alert.success { background:rgba(45,90,61,0.1); color:var(--green); border-left:3px solid var(--green); }
+  .alert.show { display:block; animation:slideIn 0.3s ease; }
+  @keyframes slideIn { from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);} }
+
+  /* HOURLY VIEW */
+  .hourly-grid { display:grid; grid-template-columns:40px 1fr; gap:2px; }
+  .hour-label { font-size:10px; color:var(--grey); text-align:right; padding-right:6px; height:28px; display:flex; align-items:center; justify-content:flex-end; }
+  .hour-slot { height:28px; border-radius:4px; position:relative; transition:background 0.2s; display:flex; align-items:center; padding:0 8px; }
+  .hour-slot.h6 { background:#d4edda; } /* 6 dispos — vert clair */
+  .hour-slot.h5 { background:#a8d5b5; } /* 5 dispos — vert moyen */
+  .hour-slot.h4 { background:#fff3cd; } /* 4 dispos — jaune */
+  .hour-slot.h3 { background:#ffd699; } /* 3 dispos — orange clair */
+  .hour-slot.h2 { background:#f4a460; } /* 2 dispos — orange */
+  .hour-slot.h1 { background:#e07050; } /* 1 dispo — rouge orangé */
+  .hour-slot.h0 { background:#c0392b; } /* 0 dispo — rouge */
+  .hour-slot.h0 .hour-slot-text { color:white; }
+  .hour-slot.h0 .capacity-badge { color:white; opacity:0.9; }
+  .hour-slot-text { font-size:11px; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .capacity-badge { position:absolute; right:6px; font-size:10px; font-weight:700; color:var(--navy); opacity:0.6; }
+
+  .legend { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+  .legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--grey); }
+  .legend-dot { width:10px; height:10px; border-radius:2px; }
+
+  /* WEEKLY */
+  .week-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .week-title { font-family:'Playfair Display',serif; font-size:15px; font-weight:600; color:var(--navy); }
+  .nav-btn { background:rgba(26,39,68,0.08); border:none; border-radius:6px; width:30px; height:30px; cursor:pointer; font-size:14px; color:var(--navy); display:flex; align-items:center; justify-content:center; }
+  .nav-btn:hover { background:rgba(201,168,76,0.2); }
+  .week-wrapper { overflow-x:auto; }
+  .week-header-row { display:grid; grid-template-columns:40px repeat(7,1fr); gap:2px; margin-bottom:3px; }
+  .wh-cell { text-align:center; font-size:10px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:var(--navy); padding:5px 2px; border-radius:5px; background:rgba(26,39,68,0.06); }
+  .wh-cell.today { background:var(--navy); color:var(--white); }
+  .week-body-grid { display:grid; grid-template-columns:40px repeat(7,1fr); gap:2px; }
+  .wbl { font-size:10px; color:var(--grey); text-align:right; padding-right:5px; height:22px; display:flex; align-items:center; justify-content:flex-end; }
+  .wc { height:22px; border-radius:3px; cursor:default; position:relative; }
+  .wc.f6{background:rgba(45,90,61,0.8);}
+  .wc.f5{background:rgba(74,138,94,0.65);}
+  .wc.f4{background:rgba(120,160,80,0.5);}
+  .wc.f3{background:rgba(201,168,76,0.55);}
+  .wc.f2{background:rgba(192,122,26,0.55);}
+  .wc.f1{background:rgba(160,60,40,0.6);}
+  .wc.f0{background:rgba(139,44,44,0.8);}
+  .wc-tip { position:absolute; bottom:110%; left:50%; transform:translateX(-50%); background:rgba(26,39,68,0.95); color:white; font-size:10px; padding:4px 7px; border-radius:5px; white-space:nowrap; display:none; z-index:20; pointer-events:none; }
+  .wc:hover .wc-tip { display:block; }
+
+  /* BOOKINGS */
+  .bookings-list { display:flex; flex-direction:column; gap:8px; max-height:480px; overflow-y:auto; }
+  .bcard { background:var(--cream); border-radius:10px; padding:12px 14px; border-left:3px solid var(--gold); }
+  .bcard.active { border-left-color:var(--green); background:rgba(45,90,61,0.06); }
+  .bcard.past { border-left-color:rgba(26,39,68,0.12); opacity:0.5; }
+  .bcard.recurring { border-left-color:#7c5cbf; }
+  .bcard-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:3px; }
+  .bcard-name { font-weight:600; font-size:14px; color:var(--navy); }
+  .bcard-meta { font-size:12px; color:var(--grey); margin-bottom:8px; }
+  .bcard-actions { display:flex; gap:6px; }
+  .badge { display:inline-block; padding:2px 6px; border-radius:12px; font-size:10px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; }
+  .badge.green{background:rgba(45,90,61,0.12);color:var(--green);}
+  .badge.gold{background:rgba(201,168,76,0.15);color:#a07e2a;}
+  .badge.grey{background:rgba(26,39,68,0.08);color:var(--grey);}
+  .badge.purple{background:rgba(124,92,191,0.12);color:#7c5cbf;}
+
+  /* MEMBERS */
+  .members-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px; }
+  .mchip { display:flex; align-items:center; gap:8px; padding:9px 12px; background:var(--cream); border-radius:8px; cursor:pointer; transition:all 0.2s; border:1.5px solid transparent; }
+  .mchip:hover { border-color:var(--gold); }
+  .mavatar { width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg,var(--navy),#2a3d6e); color:var(--white); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; flex-shrink:0; }
+  .mname { font-size:13px; font-weight:500; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  .mdel { background:none; border:none; color:rgba(139,44,44,0.3); cursor:pointer; font-size:14px; padding:2px; transition:color 0.2s; }
+  .mdel:hover { color:var(--red); }
+  .add-member-row { display:flex; gap:8px; margin-bottom:14px; }
+  .add-member-row input { flex:1; }
+  .add-member-row .btn { width:auto; margin-top:0; padding:9px 14px; }
+
+  /* RECURRENCE */
+  .rec-box { background:rgba(124,92,191,0.05); border:1.5px solid rgba(124,92,191,0.2); border-radius:10px; padding:14px; margin-top:10px; }
+  .rec-toggle { display:flex; align-items:center; gap:10px; cursor:pointer; margin-bottom:0; }
+  .toggle-sw { width:36px; height:20px; background:rgba(26,39,68,0.15); border-radius:10px; position:relative; transition:background 0.2s; flex-shrink:0; }
+  .toggle-sw.on { background:#7c5cbf; }
+  .toggle-sw::after { content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; background:white; border-radius:50%; transition:transform 0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+  .toggle-sw.on::after { transform:translateX(16px); }
+  .rec-opts { display:none; margin-top:12px; }
+  .rec-opts.show { display:block; }
+  .days-sel { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+  .day-b { padding:5px 9px; border:1.5px solid rgba(124,92,191,0.25); border-radius:6px; background:white; color:var(--navy); font-size:12px; font-weight:500; cursor:pointer; transition:all 0.15s; font-family:'DM Sans',sans-serif; }
+  .day-b.on { background:#7c5cbf; color:white; border-color:#7c5cbf; }
+
+  /* MODAL */
+  .modal-ov { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; display:none; align-items:center; justify-content:center; padding:20px; }
+  .modal-ov.show { display:flex; }
+  .modal-box { background:white; border-radius:16px; padding:24px; max-width:380px; width:100%; }
+  .modal-title { font-family:'Playfair Display',serif; font-size:17px; font-weight:600; color:var(--navy); margin-bottom:10px; }
+  .modal-text { font-size:13px; color:var(--grey); margin-bottom:16px; line-height:1.5; }
+  .modal-btns { display:flex; flex-direction:column; gap:8px; }
+  .modal-btns .btn { margin-top:0; }
+
+  .empty-state { text-align:center; padding:28px; color:var(--grey); font-size:14px; }
+  .empty-state-icon { font-size:30px; margin-bottom:8px; }
+  footer { text-align:center; color:rgba(255,255,255,0.25); font-size:12px; margin-top:20px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo-badge">⛳ Paris Country Club</div>
+    <h1>Gestion de la Carte</h1>
+    <p class="subtitle">6 accès simultanés · Membres & invités</p>
+  </header>
+
+  <div id="main-loader" class="loader"><div class="spinner"></div> Connexion…</div>
+
+  <div id="main-content" style="display:none">
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('reservations')">📅 Réservations</button>
+      <button class="tab-btn" onclick="switchTab('planning')">📊 Planning</button>
+      <button class="tab-btn" onclick="switchTab('membres')">👥 Membres</button>
+    </div>
+
+    <!-- RESERVATIONS -->
+    <div class="tab-content active" id="tab-reservations">
+      <div class="panel">
+        <div class="panel-title">Aujourd'hui — <span id="today-label" style="font-size:14px;font-weight:400;color:var(--grey);font-family:'DM Sans',sans-serif"></span></div>
+        <div class="hourly-grid" id="hourly-grid"></div>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#d4edda"></div>6 dispos</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#a8d5b5"></div>5 dispos</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#fff3cd;border:1px solid #ddd"></div>4 dispos</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffd699"></div>3 dispos</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f4a460"></div>2 dispos</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#e07050"></div>1 dispo</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#c0392b"></div>Complet</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-title">Nouvelle réservation</div>
+          <div class="alert" id="alert-booking"></div>
+          <div class="form-group">
+            <label>Membre</label>
+            <select id="form-member"><option value="">— Sélectionner —</option></select>
+          </div>
+          <div class="form-group">
+            <label>Nombre de personnes</label>
+            <input type="number" id="form-guests" min="1" max="6" value="1">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Date</label>
+              <input type="date" id="form-date">
+            </div>
+            <div class="form-group">
+              <label>Heure début</label>
+              <input type="time" id="form-time-start" value="10:00">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Heure de fin</label>
+            <input type="time" id="form-time-end" value="13:00">
+          </div>
+
+          <div class="rec-box">
+            <div class="rec-toggle" onclick="toggleRec()">
+              <div class="toggle-sw" id="rec-sw"></div>
+              <span style="font-size:13px;font-weight:500;color:var(--navy)">🔁 Réservation récurrente</span>
+            </div>
+            <div class="rec-opts" id="rec-opts">
+              <div class="form-group" style="margin-top:10px">
+                <label>Fréquence</label>
+                <select id="rec-freq" onchange="updateRecFreq()">
+                  <option value="weekly">Hebdomadaire</option>
+                  <option value="daily">Quotidienne</option>
+                  <option value="monthly">Mensuelle</option>
+                </select>
+              </div>
+              <div id="rec-days-wrap" class="form-group">
+                <label>Jours</label>
+                <div class="days-sel">
+                  <button class="day-b" onclick="toggleDay(this,'1')">Lun</button>
+                  <button class="day-b" onclick="toggleDay(this,'2')">Mar</button>
+                  <button class="day-b" onclick="toggleDay(this,'3')">Mer</button>
+                  <button class="day-b" onclick="toggleDay(this,'4')">Jeu</button>
+                  <button class="day-b" onclick="toggleDay(this,'5')">Ven</button>
+                  <button class="day-b" onclick="toggleDay(this,'6')">Sam</button>
+                  <button class="day-b" onclick="toggleDay(this,'0')">Dim</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Fin de récurrence</label>
+                <input type="date" id="rec-end">
+              </div>
+            </div>
+          </div>
+
+          <button class="btn btn-gold" id="btn-reserve" onclick="addBooking()">✦ Réserver</button>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">Réservations à venir</div>
+          <div class="bookings-list" id="bookings-list">
+            <div class="empty-state"><div class="empty-state-icon">🏌️</div>Aucune réservation</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PLANNING -->
+    <div class="tab-content" id="tab-planning">
+      <div class="panel">
+        <div class="week-nav">
+          <button class="nav-btn" onclick="changeWeek(-1)">←</button>
+          <div class="week-title" id="week-title"></div>
+          <button class="nav-btn" onclick="changeWeek(1)">→</button>
+        </div>
+        <div class="week-wrapper">
+          <div class="week-header-row" id="week-header"></div>
+          <div class="week-body-grid" id="week-body"></div>
+        </div>
+        <div class="legend" style="margin-top:14px">
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(45,90,61,0.8)"></div>6 libres</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(74,138,94,0.65)"></div>5</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(120,160,80,0.5)"></div>4</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(201,168,76,0.55)"></div>3</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(192,122,26,0.55)"></div>2</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(160,60,40,0.6)"></div>1</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(139,44,44,0.8)"></div>Complet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MEMBRES -->
+    <div class="tab-content" id="tab-membres">
+      <div class="panel">
+        <div class="panel-title">Gestion des membres</div>
+        <div class="alert" id="alert-member"></div>
+        <div class="add-member-row">
+          <input type="text" id="new-member-name" placeholder="Prénom Nom" maxlength="60">
+          <button class="btn btn-gold btn-sm" onclick="addMember()">+ Ajouter</button>
+        </div>
+        <div class="members-grid" id="members-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Paris Country Club · Carte partagée · 6 accès simultanés</footer>
+</div>
+
+<!-- MODAL SUPPRIMER -->
+<div class="modal-ov" id="modal-del">
+  <div class="modal-box">
+    <div class="modal-title">Supprimer la réservation</div>
+    <div class="modal-text">Cette réservation fait partie d'une série récurrente. Que voulez-vous supprimer ?</div>
+    <div class="modal-btns">
+      <button class="btn" onclick="delOne()">Supprimer cette occurrence uniquement</button>
+      <button class="btn btn-red" onclick="delAll()">Supprimer toute la série</button>
+      <button class="btn btn-grey" onclick="closeModals()">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL MODIFIER -->
+<div class="modal-ov" id="modal-edit">
+  <div class="modal-box">
+    <div class="modal-title">Modifier la réservation</div>
+    <div class="modal-text" id="modal-edit-desc"></div>
+    <div class="form-group">
+      <label>Nombre de personnes</label>
+      <input type="number" id="edit-guests" min="1" max="6">
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Heure début</label><input type="time" id="edit-ts"></div>
+      <div class="form-group"><label>Heure fin</label><input type="time" id="edit-te"></div>
+    </div>
+    <div class="modal-btns" style="margin-top:14px" id="edit-btns"></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL="https://szwqprvkcwyvhlvnvuth.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6d3FwcnZrY3d5dmhsdm52dXRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNzQwOTksImV4cCI6MjA5MzY1MDA5OX0.dalpTT-yOX8XRiljwQ0ZacqxWOEgSbvUNf-ybd7tjPI";
+
+let sb,bookings=[],members=[];
+let weekOffset=0;
+let recOn=false,selDays=[];
+let pendDelId=null,pendDelRecId=null;
+let pendEditId=null,pendEditRecId=null;
+
+async function init(){
+  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  try{
+    await Promise.all([loadBookings(),loadMembers()]);
+    setDefaults();
+    renderAll();
+    document.getElementById('main-loader').style.display='none';
+    document.getElementById('main-content').style.display='block';
+  }catch(e){
+    document.getElementById('main-loader').innerHTML=`<div style="color:#ff8888;padding:20px">Erreur: ${e.message}</div>`;
+  }
+}
+
+async function loadBookings(){
+  const {data,error}=await sb.from('bookings').select('*').order('date_start',{ascending:true});
+  if(!error) bookings=data||[];
+}
+
+async function loadMembers(){
+  const {data,error}=await sb.from('members').select('*').order('name',{ascending:true});
+  if(!error) members=data||[];
+}
+
+function setDefaults(){
+  const t=new Date();
+  document.getElementById('form-date').value=t.toISOString().split('T')[0];
+  const e=new Date(t);e.setMonth(e.getMonth()+3);
+  document.getElementById('rec-end').value=e.toISOString().split('T')[0];
+}
+
+function switchTab(tab){
+  ['reservations','planning','membres'].forEach((t,i)=>{
+    document.querySelectorAll('.tab-btn')[i].classList.toggle('active',t===tab);
+    document.getElementById(`tab-${t}`).classList.toggle('active',t===tab);
+  });
+  if(tab==='planning') renderWeek();
+}
+
+// RECURRENCE
+function toggleRec(){
+  recOn=!recOn;
+  document.getElementById('rec-sw').classList.toggle('on',recOn);
+  document.getElementById('rec-opts').classList.toggle('show',recOn);
+}
+
+function updateRecFreq(){
+  const v=document.getElementById('rec-freq').value;
+  document.getElementById('rec-days-wrap').style.display=v==='weekly'?'block':'none';
+}
+
+function toggleDay(btn,d){
+  btn.classList.toggle('on');
+  if(selDays.includes(d)) selDays=selDays.filter(x=>x!==d);
+  else selDays.push(d);
+}
+
+function genDates(start,freq,days,end,ts,te){
+  const rows=[],recId=crypto.randomUUID();
+  const rule=JSON.stringify({freq,days,end});
+  let cur=new Date(start+'T12:00:00');
+  const endD=new Date(end+'T23:59:59');
+  let count=0;
+  while(cur<=endD&&count<500){
+    const dow=cur.getDay().toString();
+    const dateStr=cur.toISOString().split('T')[0];
+    let include=false;
+    if(freq==='daily') include=true;
+    else if(freq==='weekly') include=days.length===0||days.includes(dow);
+    else if(freq==='monthly') include=cur.getDate()===new Date(start+'T12:00:00').getDate();
+    if(include){
+      rows.push({
+        date:dateStr,
+        time_start:ts,time_end:te,
+        date_start:`${dateStr}T${ts}:00`,
+        date_end:`${dateStr}T${te}:00`,
+        recurrence_id:recId,
+        recurrence_rule:rule
+      });
+    }
+    cur.setDate(cur.getDate()+1);count++;
+  }
+  return rows;
+}
+
+async function addBooking(){
+  const member=document.getElementById('form-member').value;
+  const guests=parseInt(document.getElementById('form-guests').value)||1;
+  const date=document.getElementById('form-date').value;
+  const ts=document.getElementById('form-time-start').value;
+  const te=document.getElementById('form-time-end').value;
+
+  if(!member) return showAlert('booking','error','Sélectionnez un membre.');
+  if(!date||!ts||!te) return showAlert('booking','error','Remplissez tous les champs.');
+  if(guests<1||guests>6) return showAlert('booking','error','Entre 1 et 6 personnes.');
+
+  const btn=document.getElementById('btn-reserve');
+  btn.disabled=true;btn.textContent='Réservation…';
+
+  if(recOn){
+    const freq=document.getElementById('rec-freq').value;
+    const end=document.getElementById('rec-end').value;
+    if(!end){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error','Choisissez une date de fin.');}
+    if(freq==='weekly'&&selDays.length===0){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error','Sélectionnez au moins un jour.');}
+    const dates=genDates(date,freq,selDays,end,ts,te);
+    const rows=dates.map(d=>({...d,member,guests}));
+    const {error}=await sb.from('bookings').insert(rows);
+    btn.disabled=false;btn.textContent='✦ Réserver';
+    if(error) return showAlert('booking','error','Erreur: '+error.message);
+    showAlert('booking','success',`✓ ${rows.length} réservations créées.`);
+  } else {
+    const ds=`${date}T${ts}:00`,de=`${date}T${te}:00`;
+    if(new Date(de)<=new Date(ds)){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error',"L'heure de fin doit être après le début.");}
+    const {data:ex}=await sb.from('bookings').select('guests').lt('date_start',de).gt('date_end',ds);
+    const tot=(ex||[]).reduce((s,b)=>s+b.guests,0);
+    if(tot+guests>6){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error',`Complet sur ce créneau (${tot+guests}/6).`);}
+    const {error}=await sb.from('bookings').insert([{member,guests,date,time_start:ts,time_end:te,date_start:ds,date_end:de}]);
+    btn.disabled=false;btn.textContent='✦ Réserver';
+    if(error) return showAlert('booking','error','Erreur: '+error.message);
+    showAlert('booking','success',`✓ Réservation confirmée pour ${member}.`);
+  }
+
+  document.getElementById('form-member').value='';
+  document.getElementById('form-guests').value='1';
+  await loadBookings();renderAll();
+}
+
+// DELETE
+function askDelete(id,recId){
+  if(recId){
+    pendDelId=id;pendDelRecId=recId;
+    document.getElementById('modal-del').classList.add('show');
+  } else {
+    if(confirm('Supprimer cette réservation ?')) doDelete([id]);
+  }
+}
+async function delOne(){closeModals();await doDelete([pendDelId]);}
+async function delAll(){closeModals();const ids=bookings.filter(b=>b.recurrence_id===pendDelRecId).map(b=>b.id);await doDelete(ids);}
+async function doDelete(ids){await sb.from('bookings').delete().in('id',ids);await loadBookings();renderAll();}
+
+// EDIT
+function askEdit(id,recId,guests,ts,te,member,date){
+  pendEditId=id;pendEditRecId=recId;
+  document.getElementById('edit-guests').value=guests;
+  document.getElementById('edit-ts').value=ts;
+  document.getElementById('edit-te').value=te;
+  document.getElementById('modal-edit-desc').textContent=`${member} — ${date}`;
+  const btns=document.getElementById('edit-btns');
+  if(recId){
+    btns.innerHTML=`
+      <button class="btn btn-gold" onclick="saveEditOne()">Modifier cette occurrence</button>
+      <button class="btn" onclick="saveEditAll()">Modifier toute la série</button>
+      <button class="btn btn-grey" onclick="closeModals()">Annuler</button>`;
+  } else {
+    btns.innerHTML=`
+      <button class="btn btn-gold" onclick="saveEditOne()">Enregistrer</button>
+      <button class="btn btn-grey" onclick="closeModals()">Annuler</button>`;
+  }
+  document.getElementById('modal-edit').classList.add('show');
+}
+
+async function saveEditOne(){
+  closeModals();
+  const guests=parseInt(document.getElementById('edit-guests').value);
+  const ts=document.getElementById('edit-ts').value;
+  const te=document.getElementById('edit-te').value;
+  const b=bookings.find(x=>x.id===pendEditId);
+  if(!b) return;
+  await sb.from('bookings').update({guests,time_start:ts,time_end:te,date_start:`${b.date}T${ts}:00`,date_end:`${b.date}T${te}:00`}).eq('id',pendEditId);
+  await loadBookings();renderAll();
+}
+
+async function saveEditAll(){
+  closeModals();
+  const guests=parseInt(document.getElementById('edit-guests').value);
+  const ts=document.getElementById('edit-ts').value;
+  const te=document.getElementById('edit-te').value;
+  const series=bookings.filter(b=>b.recurrence_id===pendEditRecId);
+  const updates=series.map(b=>sb.from('bookings').update({guests,time_start:ts,time_end:te,date_start:`${b.date}T${ts}:00`,date_end:`${b.date}T${te}:00`}).eq('id',b.id));
+  await Promise.all(updates);
+  await loadBookings();renderAll();
+}
+
+function closeModals(){document.querySelectorAll('.modal-ov').forEach(m=>m.classList.remove('show'));}
+
+// MEMBERS
+async function addMember(){
+  const inp=document.getElementById('new-member-name');
+  const name=inp.value.trim();
+  if(!name) return showAlert('member','error','Entrez un nom.');
+  const {error}=await sb.from('members').insert([{name}]);
+  if(error) return showAlert('member','error','Erreur: '+error.message);
+  inp.value='';
+  await loadMembers();renderMembers();populateSel();
+  showAlert('member','success',`✓ ${name} ajouté.`);
+}
+
+async function deleteMember(id,name){
+  if(!confirm(`Supprimer ${name} ?`)) return;
+  await sb.from('members').delete().eq('id',id);
+  await loadMembers();renderMembers();populateSel();
+}
+
+function renderAll(){
+  renderHourly();renderBookings();renderMembers();populateSel();renderWeek();
+}
+
+// HOURLY
+function renderHourly(){
+  const today=new Date();
+  const todayStr=today.toISOString().split('T')[0];
+  document.getElementById('today-label').textContent=today.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  const grid=document.getElementById('hourly-grid');
+  grid.innerHTML='';
+  const dayBks=bookings.filter(b=>b.date===todayStr);
+
+  for(let h=7;h<=23;h++){
+    const lbl=document.createElement('div');
+    lbl.className='hour-label';lbl.textContent=`${h}h`;grid.appendChild(lbl);
+
+    const slot=document.createElement('div');
+    const used=dayBks.reduce((s,b)=>{
+      const bh=parseInt(b.time_start),eh=parseInt(b.time_end);
+      return(h>=bh&&h<eh)?s+b.guests:s;
+    },0);
+    const free=Math.max(0,6-used);
+
+    if(used===0) slot.className='hour-slot h6';
+    else if(free>=5) slot.className='hour-slot h5';
+    else if(free>=4) slot.className='hour-slot h4';
+    else if(free>=3) slot.className='hour-slot h3';
+    else if(free>=2) slot.className='hour-slot h2';
+    else if(free>=1) slot.className='hour-slot h1';
+    else slot.className='hour-slot h0';
+
+    const names=dayBks.filter(b=>{
+      const bh=parseInt(b.time_start),eh=parseInt(b.time_end);
+      return h>=bh&&h<eh;
+    }).map(b=>`${b.member}(${b.guests}p)`).join(' · ');
+
+    const badge=document.createElement('div');
+    badge.className='capacity-badge';
+    badge.textContent=used>0?`${free}/6 libre${free!==1?'s':''}`:' ';
+    slot.appendChild(badge);
+
+    if(names){
+      const t=document.createElement('div');
+      t.className='hour-slot-text';t.textContent=names;slot.appendChild(t);
+    }
+    grid.appendChild(slot);
+  }
+}
+
+// WEEKLY
+function renderWeek(){
+  const today=new Date();
+  const mon=new Date(today);
+  mon.setDate(today.getDate()-((today.getDay()+6)%7)+weekOffset*7);
+
+  const days=[];
+  for(let i=0;i<7;i++){const d=new Date(mon);d.setDate(mon.getDate()+i);days.push(d);}
+
+  const fmt=d=>d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
+  document.getElementById('week-title').textContent=`${fmt(days[0])} — ${fmt(days[6])}`;
+
+  const header=document.getElementById('week-header');
+  header.innerHTML='<div></div>';
+  const dn=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  days.forEach((d,i)=>{
+    const c=document.createElement('div');
+    c.className='wh-cell'+(d.toDateString()===today.toDateString()?' today':'');
+    c.innerHTML=`<div>${dn[i]}</div><div style="font-size:11px;opacity:0.7">${d.getDate()}</div>`;
+    header.appendChild(c);
+  });
+
+  const body=document.getElementById('week-body');
+  body.innerHTML='';
+  for(let h=7;h<=23;h++){
+    const lbl=document.createElement('div');
+    lbl.className='wbl';lbl.textContent=`${h}h`;body.appendChild(lbl);
+    days.forEach(d=>{
+      const ds=d.toISOString().split('T')[0];
+      const dayBks=bookings.filter(b=>b.date===ds);
+      const used=dayBks.reduce((s,b)=>{
+        const bh=parseInt(b.time_start),eh=parseInt(b.time_end);
+        return(h>=bh&&h<eh)?s+b.guests:s;
+      },0);
+      const free=Math.max(0,6-used);
+      const cell=document.createElement('div');
+      cell.className=`wc f${free}`;
+      const names=dayBks.filter(b=>{
+        const bh=parseInt(b.time_start),eh=parseInt(b.time_end);
+        return h>=bh&&h<eh;
+      }).map(b=>`${b.member}(${b.guests})`).join(', ');
+      if(names||used>0){
+        const tip=document.createElement('div');
+        tip.className='wc-tip';
+        tip.textContent=`${free} libre(s)${names?' · '+names:''}`;
+        cell.appendChild(tip);
+      }
+      body.appendChild(cell);
+    });
+  }
+}
+
+function changeWeek(d){weekOffset+=d;renderWeek();}
+
+// BOOKINGS LIST
+function renderBookings(){
+  const list=document.getElementById('bookings-list');
+  const now=new Date();
+  const upcoming=bookings.filter(b=>new Date(b.date_end)>now).sort((a,b)=>new Date(a.date_start)-new Date(b.date_start));
+  if(!upcoming.length){list.innerHTML='<div class="empty-state"><div class="empty-state-icon">🏌️</div>Aucune réservation à venir</div>';return;}
+  list.innerHTML='';
+  upcoming.forEach(b=>{
+    const bs=new Date(b.date_start),be=new Date(b.date_end);
+    const isActive=now>=bs&&now<be;
+    const card=document.createElement('div');
+    card.className=`bcard ${isActive?'active':'upcoming'} ${b.recurrence_id?'recurring':''}`;
+    const dateStr=bs.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'});
+    const badge=isActive?'<span class="badge green">En cours</span>':'<span class="badge gold">À venir</span>';
+    const recBadge=b.recurrence_id?'<span class="badge purple">🔁</span>':'';
+    card.innerHTML=`
+      <div class="bcard-top"><div class="bcard-name">${b.member}</div><div style="display:flex;gap:4px">${badge}${recBadge}</div></div>
+      <div class="bcard-meta">${dateStr} · ${b.time_start}–${b.time_end} · ${b.guests} pers.</div>
+      <div class="bcard-actions">
+        <button class="btn btn-sm" style="background:rgba(26,39,68,0.08);color:var(--navy)" onclick="askEdit(${b.id},'${b.recurrence_id||''}',${b.guests},'${b.time_start}','${b.time_end}','${b.member}','${dateStr}')">✏️ Modifier</button>
+        <button class="btn btn-sm btn-red" onclick="askDelete(${b.id},'${b.recurrence_id||''}')">✕ Suppr.</button>
+      </div>`;
+    list.appendChild(card);
+  });
+}
+
+// MEMBERS
+function renderMembers(){
+  const grid=document.getElementById('members-grid');
+  if(!members.length){grid.innerHTML='<div class="empty-state"><div class="empty-state-icon">👥</div>Aucun membre</div>';return;}
+  grid.innerHTML='';
+  members.forEach(m=>{
+    const ini=m.name.split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase();
+    const c=document.createElement('div');
+    c.className='mchip';
+    c.innerHTML=`<div class="mavatar">${ini}</div><div class="mname">${m.name}</div><button class="mdel" onclick="event.stopPropagation();deleteMember(${m.id},'${m.name.replace(/'/g,"\\'")}')">✕</button>`;
+    c.onclick=()=>{document.getElementById('form-member').value=m.name;switchTab('reservations');};
+    grid.appendChild(c);
+  });
+}
+
+function populateSel(){
+  const sel=document.getElementById('form-member');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">— Sélectionner —</option>';
+  members.forEach(m=>{const o=document.createElement('option');o.value=m.name;o.textContent=m.name;sel.appendChild(o);});
+  sel.value=cur;
+}
+
+function showAlert(zone,type,msg){
+  const el=document.getElementById(`alert-${zone}`);
+  el.className=`alert ${type} show`;el.textContent=msg;
+  setTimeout(()=>el.className='alert',4500);
+}
+
+setInterval(async()=>{if(!sb)return;await loadBookings();renderAll();},60000);
+init();
+</script>
+</body>
+</html>
