@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Paris Country Club — Carte Partagée</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --navy: #1a2744;
@@ -85,6 +84,9 @@
   .legend { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   .legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--grey); }
   .legend-dot { width:10px; height:10px; border-radius:2px; }
+
+  .day-nav { display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:14px; }
+  #day-label { font-family:'Playfair Display',serif; font-size:15px; font-weight:600; color:var(--navy); min-width:200px; text-align:center; }
 
   /* WEEKLY */
   .week-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
@@ -171,7 +173,22 @@
     <p class="subtitle">6 accès simultanés · Membres & invités</p>
   </header>
 
-  <div id="main-loader" class="loader"><div class="spinner"></div> Connexion…</div>
+  <div id="main-loader" class="loader" style="display:none"><div class="spinner"></div> Chargement…</div>
+
+  <!-- ÉCRAN DE CONNEXION -->
+  <div id="login-gate" class="modal-ov" style="background:var(--navy)">
+    <div class="modal-box" style="max-width:340px">
+      <div style="text-align:center;margin-bottom:14px"><div class="logo-badge">⛳ Paris Country Club</div></div>
+      <div class="modal-title">Accès protégé</div>
+      <div class="modal-text">Entrez le mot de passe pour accéder à la carte partagée.</div>
+      <div class="alert" id="alert-login"></div>
+      <div class="form-group">
+        <label>Mot de passe</label>
+        <input type="password" id="login-pw" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button class="btn btn-gold" id="btn-login" onclick="doLogin()">Se connecter</button>
+    </div>
+  </div>
 
   <div id="main-content" style="display:none">
     <div class="tabs">
@@ -183,7 +200,12 @@
     <!-- RESERVATIONS -->
     <div class="tab-content active" id="tab-reservations">
       <div class="panel">
-        <div class="panel-title">Aujourd'hui — <span id="today-label" style="font-size:14px;font-weight:400;color:var(--grey);font-family:'DM Sans',sans-serif"></span></div>
+        <div class="panel-title">Vue du jour</div>
+        <div class="day-nav">
+          <button class="nav-btn" onclick="changeDay(-1)" aria-label="Jour précédent">◀</button>
+          <div id="day-label"></div>
+          <button class="nav-btn" onclick="changeDay(1)" aria-label="Jour suivant">▶</button>
+        </div>
         <div class="hourly-grid" id="hourly-grid"></div>
         <div class="legend">
           <div class="legend-item"><div class="legend-dot" style="background:#d4edda"></div>6 dispos</div>
@@ -340,36 +362,85 @@
 </div>
 
 <script>
-const SUPABASE_URL="https://szwqprvkcwyvhlvnvuth.supabase.co";
-const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6d3FwcnZrY3d5dmhsdm52dXRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNzQwOTksImV4cCI6MjA5MzY1MDA5OX0.dalpTT-yOX8XRiljwQ0ZacqxWOEgSbvUNf-ybd7tjPI";
+// Toutes les données passent par l'Edge Function token-gardée (aucune clé Supabase exposée).
+const EF_URL="https://szwqprvkcwyvhlvnvuth.supabase.co/functions/v1/pcc";
+let pccToken=localStorage.getItem('pcc_token')||null;
 
-let sb,bookings=[],members=[];
+let bookings=[],members=[];
 let weekOffset=0;
+let dayOffset=0; // 0 = aujourd'hui
 let recOn=false,selDays=[];
 let pendDelId=null,pendDelRecId=null;
 let pendEditId=null,pendEditRecId=null;
 
+async function efCall(payload){
+  const res=await fetch(EF_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  return await res.json();
+}
+async function apiCall(action,payload={}){
+  const r=await efCall({fn:'api',token:pccToken,action,payload});
+  if(r&&r.error==='unauthorized'){ doLogout(); throw new Error('unauthorized'); }
+  return r;
+}
+async function loadData(){
+  const r=await apiCall('list');
+  if(r&&r.ok){ bookings=r.bookings||[]; members=r.members||[]; }
+}
+
+// ---- AUTH ----
+function showLoginGate(){
+  document.getElementById('main-content').style.display='none';
+  document.getElementById('main-loader').style.display='none';
+  document.getElementById('login-gate').classList.add('show');
+  setTimeout(()=>document.getElementById('login-pw').focus(),50);
+}
+function doLogout(){
+  pccToken=null; localStorage.removeItem('pcc_token');
+  showLoginGate();
+}
+async function doLogin(){
+  const pwEl=document.getElementById('login-pw');
+  const pw=pwEl.value;
+  if(!pw) return showAlert('login','error','Entrez le mot de passe.');
+  const btn=document.getElementById('btn-login'); btn.disabled=true; btn.textContent='Connexion…';
+  let r;
+  try{ r=await efCall({fn:'login',password:pw}); }
+  catch(e){ btn.disabled=false; btn.textContent='Se connecter'; return showAlert('login','error','Erreur réseau, réessayez.'); }
+  btn.disabled=false; btn.textContent='Se connecter';
+  if(r&&r.ok&&r.token){
+    pccToken=r.token; localStorage.setItem('pcc_token',pccToken); pwEl.value='';
+    document.getElementById('login-gate').classList.remove('show');
+    startApp();
+  } else if(r&&r.error==='locked'){
+    const until=r.locked_until?new Date(r.locked_until):null;
+    const mins=until?Math.max(1,Math.ceil((until-new Date())/60000)):30;
+    showAlert('login','error',`Trop d'essais. Accès bloqué (~${mins} min).`);
+  } else if(r&&r.error==='bad_password'){
+    showAlert('login','error',`Mot de passe incorrect. ${r.remaining} essai(s) restant(s).`);
+  } else {
+    showAlert('login','error','Mot de passe incorrect.');
+  }
+}
+
 async function init(){
-  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  dayOffset=0; // ouverture sur aujourd'hui
+  if(!pccToken){ showLoginGate(); return; }
+  startApp();
+}
+async function startApp(){
+  dayOffset=0; // à la connexion : aujourd'hui
+  document.getElementById('main-loader').style.display='flex';
   try{
-    await Promise.all([loadBookings(),loadMembers()]);
+    await loadData();
     setDefaults();
     renderAll();
     document.getElementById('main-loader').style.display='none';
     document.getElementById('main-content').style.display='block';
   }catch(e){
+    if(e.message==='unauthorized') return; // gate déjà affichée
+    document.getElementById('main-loader').style.display='flex';
     document.getElementById('main-loader').innerHTML=`<div style="color:#ff8888;padding:20px">Erreur: ${e.message}</div>`;
   }
-}
-
-async function loadBookings(){
-  const {data,error}=await sb.from('bookings').select('*').order('date_start',{ascending:true});
-  if(!error) bookings=data||[];
-}
-
-async function loadMembers(){
-  const {data,error}=await sb.from('members').select('*').order('name',{ascending:true});
-  if(!error) members=data||[];
 }
 
 function setDefaults(){
@@ -454,25 +525,25 @@ async function addBooking(){
     if(freq==='weekly'&&selDays.length===0){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error','Sélectionnez au moins un jour.');}
     const dates=genDates(date,freq,selDays,end,ts,te);
     const rows=dates.map(d=>({...d,member,guests}));
-    const {error}=await sb.from('bookings').insert(rows);
+    let r; try{ r=await apiCall('create_bookings',{rows}); }catch(e){ btn.disabled=false;btn.textContent='✦ Réserver'; if(e.message==='unauthorized')return; return showAlert('booking','error','Erreur réseau.'); }
     btn.disabled=false;btn.textContent='✦ Réserver';
-    if(error) return showAlert('booking','error','Erreur: '+error.message);
+    if(!r||!r.ok) return showAlert('booking','error','Erreur lors de la réservation.');
     showAlert('booking','success',`✓ ${rows.length} réservations créées.`);
   } else {
     const ds=`${date}T${ts}:00`,de=`${date}T${te}:00`;
     if(new Date(de)<=new Date(ds)){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error',"L'heure de fin doit être après le début.");}
-    const {data:ex}=await sb.from('bookings').select('guests').lt('date_start',de).gt('date_end',ds);
-    const tot=(ex||[]).reduce((s,b)=>s+b.guests,0);
+    let ov; try{ ov=await apiCall('overlap',{date_start:ds,date_end:de}); }catch(e){ btn.disabled=false;btn.textContent='✦ Réserver'; if(e.message==='unauthorized')return; return showAlert('booking','error','Erreur réseau.'); }
+    const tot=(ov&&ov.ok)?(ov.total||0):0;
     if(tot+guests>6){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error',`Complet sur ce créneau (${tot+guests}/6).`);}
-    const {error}=await sb.from('bookings').insert([{member,guests,date,time_start:ts,time_end:te,date_start:ds,date_end:de}]);
+    let r; try{ r=await apiCall('create_bookings',{rows:[{member,guests,date,time_start:ts,time_end:te,date_start:ds,date_end:de}]}); }catch(e){ btn.disabled=false;btn.textContent='✦ Réserver'; if(e.message==='unauthorized')return; return showAlert('booking','error','Erreur réseau.'); }
     btn.disabled=false;btn.textContent='✦ Réserver';
-    if(error) return showAlert('booking','error','Erreur: '+error.message);
+    if(!r||!r.ok) return showAlert('booking','error','Erreur lors de la réservation.');
     showAlert('booking','success',`✓ Réservation confirmée pour ${member}.`);
   }
 
   document.getElementById('form-member').value='';
   document.getElementById('form-guests').value='1';
-  await loadBookings();renderAll();
+  await loadData();renderAll();
 }
 
 // DELETE
@@ -486,7 +557,7 @@ function askDelete(id,recId){
 }
 async function delOne(){closeModals();await doDelete([pendDelId]);}
 async function delAll(){closeModals();const ids=bookings.filter(b=>b.recurrence_id===pendDelRecId).map(b=>b.id);await doDelete(ids);}
-async function doDelete(ids){await sb.from('bookings').delete().in('id',ids);await loadBookings();renderAll();}
+async function doDelete(ids){try{await apiCall('delete_bookings',{ids});}catch(e){if(e.message==='unauthorized')return;}await loadData();renderAll();}
 
 // EDIT
 function askEdit(id,recId,guests,ts,te,member,date){
@@ -516,8 +587,8 @@ async function saveEditOne(){
   const te=document.getElementById('edit-te').value;
   const b=bookings.find(x=>x.id===pendEditId);
   if(!b) return;
-  await sb.from('bookings').update({guests,time_start:ts,time_end:te,date_start:`${b.date}T${ts}:00`,date_end:`${b.date}T${te}:00`}).eq('id',pendEditId);
-  await loadBookings();renderAll();
+  try{await apiCall('update_booking',{id:pendEditId,guests,time_start:ts,time_end:te,date_start:`${b.date}T${ts}:00`,date_end:`${b.date}T${te}:00`});}catch(e){if(e.message==='unauthorized')return;}
+  await loadData();renderAll();
 }
 
 async function saveEditAll(){
@@ -525,10 +596,8 @@ async function saveEditAll(){
   const guests=parseInt(document.getElementById('edit-guests').value);
   const ts=document.getElementById('edit-ts').value;
   const te=document.getElementById('edit-te').value;
-  const series=bookings.filter(b=>b.recurrence_id===pendEditRecId);
-  const updates=series.map(b=>sb.from('bookings').update({guests,time_start:ts,time_end:te,date_start:`${b.date}T${ts}:00`,date_end:`${b.date}T${te}:00`}).eq('id',b.id));
-  await Promise.all(updates);
-  await loadBookings();renderAll();
+  try{await apiCall('update_series',{recurrence_id:pendEditRecId,guests,time_start:ts,time_end:te});}catch(e){if(e.message==='unauthorized')return;}
+  await loadData();renderAll();
 }
 
 function closeModals(){document.querySelectorAll('.modal-ov').forEach(m=>m.classList.remove('show'));}
@@ -538,17 +607,17 @@ async function addMember(){
   const inp=document.getElementById('new-member-name');
   const name=inp.value.trim();
   if(!name) return showAlert('member','error','Entrez un nom.');
-  const {error}=await sb.from('members').insert([{name}]);
-  if(error) return showAlert('member','error','Erreur: '+error.message);
+  let r; try{ r=await apiCall('create_member',{name}); }catch(e){ if(e.message==='unauthorized')return; return showAlert('member','error','Erreur réseau.'); }
+  if(!r||!r.ok) return showAlert('member','error','Erreur lors de l\'ajout.');
   inp.value='';
-  await loadMembers();renderMembers();populateSel();
+  await loadData();renderMembers();populateSel();
   showAlert('member','success',`✓ ${name} ajouté.`);
 }
 
 async function deleteMember(id,name){
   if(!confirm(`Supprimer ${name} ?`)) return;
-  await sb.from('members').delete().eq('id',id);
-  await loadMembers();renderMembers();populateSel();
+  try{await apiCall('delete_member',{id});}catch(e){if(e.message==='unauthorized')return;}
+  await loadData();renderMembers();populateSel();
 }
 
 function renderAll(){
@@ -556,13 +625,18 @@ function renderAll(){
 }
 
 // HOURLY
+function changeDay(d){ dayOffset+=d; renderHourly(); }
+
 function renderHourly(){
-  const today=new Date();
-  const todayStr=today.toISOString().split('T')[0];
-  document.getElementById('today-label').textContent=today.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  const day=new Date();
+  day.setHours(12,0,0,0);
+  day.setDate(day.getDate()+dayOffset);
+  const dayStr=day.toISOString().split('T')[0];
+  const lbl=day.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  document.getElementById('day-label').textContent = dayOffset===0 ? `Aujourd'hui · ${lbl}` : lbl;
   const grid=document.getElementById('hourly-grid');
   grid.innerHTML='';
-  const dayBks=bookings.filter(b=>b.date===todayStr);
+  const dayBks=bookings.filter(b=>b.date===dayStr);
 
   for(let h=7;h<=23;h++){
     const lbl=document.createElement('div');
@@ -710,7 +784,7 @@ function showAlert(zone,type,msg){
   setTimeout(()=>el.className='alert',4500);
 }
 
-setInterval(async()=>{if(!sb)return;await loadBookings();renderAll();},60000);
+setInterval(async()=>{if(!pccToken)return;try{await loadData();renderAll();}catch(e){}},60000);
 init();
 </script>
 </body>
