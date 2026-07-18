@@ -373,6 +373,10 @@ let recOn=false,selDays=[];
 let pendDelId=null,pendDelRecId=null;
 let pendEditId=null,pendEditRecId=null;
 
+// Échappe le texte injecté en HTML (noms de membres, etc.) — évite toute casse/injection
+// quand un nom contient ' " < > & (ex. O'Brien, D'Angelo).
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
 async function efCall(payload){
   const res=await fetch(EF_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   return await res.json();
@@ -745,12 +749,18 @@ function renderBookings(){
     const badge=isActive?'<span class="badge green">En cours</span>':'<span class="badge gold">À venir</span>';
     const recBadge=b.recurrence_id?'<span class="badge purple">🔁</span>':'';
     card.innerHTML=`
-      <div class="bcard-top"><div class="bcard-name">${b.member}</div><div style="display:flex;gap:4px">${badge}${recBadge}</div></div>
+      <div class="bcard-top"><div class="bcard-name">${esc(b.member)}</div><div style="display:flex;gap:4px">${badge}${recBadge}</div></div>
       <div class="bcard-meta">${dateStr} · ${b.time_start}–${b.time_end} · ${b.guests} pers.</div>
-      <div class="bcard-actions">
-        <button class="btn btn-sm" style="background:rgba(26,39,68,0.08);color:var(--navy)" onclick="askEdit(${b.id},'${b.recurrence_id||''}',${b.guests},'${b.time_start}','${b.time_end}','${b.member}','${dateStr}')">✏️ Modifier</button>
-        <button class="btn btn-sm btn-red" onclick="askDelete(${b.id},'${b.recurrence_id||''}')">✕ Suppr.</button>
-      </div>`;
+      <div class="bcard-actions"></div>`;
+    const actions=card.querySelector('.bcard-actions');
+    const editBtn=document.createElement('button');
+    editBtn.className='btn btn-sm';editBtn.style.cssText='background:rgba(26,39,68,0.08);color:var(--navy)';
+    editBtn.textContent='✏️ Modifier';
+    editBtn.addEventListener('click',()=>askEdit(b.id,b.recurrence_id||'',b.guests,b.time_start,b.time_end,b.member,dateStr));
+    const delBtn=document.createElement('button');
+    delBtn.className='btn btn-sm btn-red';delBtn.textContent='✕ Suppr.';
+    delBtn.addEventListener('click',()=>askDelete(b.id,b.recurrence_id||''));
+    actions.append(editBtn,delBtn);
     list.appendChild(card);
   });
 }
@@ -761,10 +771,14 @@ function renderMembers(){
   if(!members.length){grid.innerHTML='<div class="empty-state"><div class="empty-state-icon">👥</div>Aucun membre</div>';return;}
   grid.innerHTML='';
   members.forEach(m=>{
-    const ini=m.name.split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase();
+    const ini=(m.name.split(' ').map(p=>p[0]||'').join('')||'?').substring(0,2).toUpperCase();
     const c=document.createElement('div');
     c.className='mchip';
-    c.innerHTML=`<div class="mavatar">${ini}</div><div class="mname">${m.name}</div><button class="mdel" onclick="event.stopPropagation();deleteMember(${m.id},'${m.name.replace(/'/g,"\\'")}')">✕</button>`;
+    c.innerHTML=`<div class="mavatar">${esc(ini)}</div><div class="mname">${esc(m.name)}</div>`;
+    const del=document.createElement('button');
+    del.className='mdel';del.textContent='✕';
+    del.addEventListener('click',(e)=>{e.stopPropagation();deleteMember(m.id,m.name);});
+    c.appendChild(del);
     c.onclick=()=>{document.getElementById('form-member').value=m.name;switchTab('reservations');};
     grid.appendChild(c);
   });
