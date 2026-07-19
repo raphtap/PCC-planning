@@ -528,11 +528,21 @@ async function addBooking(){
     if(!end){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error','Choisissez une date de fin.');}
     if(freq==='weekly'&&selDays.length===0){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error','Sélectionnez au moins un jour.');}
     const dates=genDates(date,freq,selDays,end,ts,te);
-    const rows=dates.map(d=>({...d,member,guests}));
-    let r; try{ r=await apiCall('create_bookings',{rows}); }catch(e){ btn.disabled=false;btn.textContent='✦ Réserver'; if(e.message==='unauthorized')return; return showAlert('booking','error','Erreur réseau.'); }
+    // Contrôle de capacité par occurrence (6/6) : on ne crée que les créneaux qui rentrent,
+    // on signale ceux ignorés (complet). Évite le surbooking silencieux d'une série.
+    const okRows=[],skipped=[];
+    for(const d of dates){
+      const ds2=new Date(d.date_start),de2=new Date(d.date_end);
+      const used=bookings.filter(b=>new Date(b.date_start)<de2&&new Date(b.date_end)>ds2).reduce((s,b)=>s+(b.guests||0),0);
+      if(used+guests>6) skipped.push(d.date); else okRows.push({...d,member,guests});
+    }
+    if(!okRows.length){ btn.disabled=false;btn.textContent='✦ Réserver'; return showAlert('booking','error',`Toutes les occurrences sont complètes (${skipped.length}). Rien créé.`); }
+    let r; try{ r=await apiCall('create_bookings',{rows:okRows}); }catch(e){ btn.disabled=false;btn.textContent='✦ Réserver'; if(e.message==='unauthorized')return; return showAlert('booking','error','Erreur réseau.'); }
     btn.disabled=false;btn.textContent='✦ Réserver';
     if(!r||!r.ok) return showAlert('booking','error','Erreur lors de la réservation.');
-    showAlert('booking','success',`✓ ${rows.length} réservations créées.`);
+    let m2=`✓ ${okRows.length} réservation(s) créée(s).`;
+    if(skipped.length) m2+=` ${skipped.length} ignorée(s) car complet : ${skipped.slice(0,4).join(', ')}${skipped.length>4?'…':''}.`;
+    showAlert('booking','success',m2);
   } else {
     const ds=`${date}T${ts}:00`,de=`${date}T${te}:00`;
     if(new Date(de)<=new Date(ds)){btn.disabled=false;btn.textContent='✦ Réserver';return showAlert('booking','error',"L'heure de fin doit être après le début.");}
