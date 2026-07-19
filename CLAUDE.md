@@ -10,8 +10,8 @@
 - Synchro via le board `orch_*`/`ctx_*` (Supabase PRO `ueutusnauyuautrzgibf`), scope `PCC`/`perso`.
 
 ## Périmètre
-- Front : `pcc.silanel.fr` — repo **`raphtap/PCC-planning`** (`/home/raph/projets/PCC-planning`), Coolify app `rvdkmqe64ubw9wyblheyn4fd`. SPA mono-fichier ; **aucune clé Supabase dans le front** (tout passe par l'EF).
-- Backend (Supabase **PERSO** `szwqprvkcwyvhlvnvuth`) : Edge Function keyless **`pcc`** (verify_jwt=false, service_role côté Deno) → `pcc_login` (mdp `pcc2026#` bcrypt + throttle par IP, **10 échecs → lock 30 min**, token session 30 j) + `pcc_api` (token-gardée : list/overlap/create/update/delete bookings + members). Tables `bookings`/`members` **fermées** (anon/authenticated révoqués, RLS deny) — seul le service_role de l'EF écrit.
+- Front : `pcc.silanel.fr` — repo **`raphtap/PCC-planning`** (`/home/raph/projets/PCC-planning`), Coolify app `rvdkmqe64ubw9wyblheyn4fd`. SPA mono-fichier ; **aucune clé Supabase dans le front** (tout passe par l'EF). Fix déployés le 19/07 : échappement des noms de membres (anti bouton-mort/injection) + contrôle de capacité 6/6 sur les réservations récurrentes (fin du surbooking silencieux).
+- Backend (Supabase **PERSO** `szwqprvkcwyvhlvnvuth`) : Edge Function keyless **`pcc`** (verify_jwt=false, service_role côté Deno) → `pcc_login` (mot de passe **bcrypt** — le mdp courant n'est **PAS** dans le repo, voir mémoire de session / board ; l'ancien `pcc2026#` inscrit ici était **périmé** (rotation 06/07) et a été retiré du doc le 19/07 — throttle par IP, **10 échecs → lock 30 min**, token session 30 j) + `pcc_api` (token-gardée : list/overlap/create/update/delete bookings + members). Tables `bookings`/`members` **+** `pcc_auth`/`pcc_sessions`/`pcc_login_throttle` **fermées** (anon/authenticated révoqués — durcissement 17/07, RLS deny) — seul le service_role de l'EF écrit.
 
 ## Débloquer / administrer (MCP Supabase, PERSO)
 - Débloquer un lockout : `DELETE FROM public.pcc_login_throttle;` (ou `WHERE ip='…'`).
