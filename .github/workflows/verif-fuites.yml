@@ -1,0 +1,11 @@
+# Appel du controle de fuites MUTUALISE (motifs definis une seule fois dans
+# raphtap/silanel-orchestration/.github/workflows/verif-fuites.yml).
+# Ce controle DETECTE, il n'EMPECHE PAS : quand il s'execute le code est deja sur
+# GitHub -> un secret repere doit etre REVOQUE, pas seulement retire.
+name: Verification des fuites
+on:
+  push:
+  pull_request:
+jobs:
+  appel:
+    uses: raphtap/silanel-orchestration/.github/workflows/verif-fuites.yml@main
