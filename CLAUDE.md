@@ -1,5 +1,8 @@
 # CLAUDE.md — PCC (orchestrateur perso, app de réservation)
 
+> 🟦 **Au démarrage, lire d abord `~/orchestration/SOCLE-COMMUN.md`** (règles communes à toutes les sessions), puis ce fichier, puis le board.
+
+
 > Auto-chargé au démarrage de la session `pcc`. App **PERSO** (hors Dentego, hors socle Atlas) :
 > réservations de créneaux. Sécurisée par mot de passe + throttle serveur (05/07).
 
