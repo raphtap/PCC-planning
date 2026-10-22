@@ -1,0 +1,103 @@
+# ⚠️ EXCEPTION ASSUMEE : ce depot est PUBLIC, il ne peut PAS appeler le workflow reutilisable
+# prive raphtap/silanel-orchestration. Copie autonome des motifs. Si ce depot passe en PRIVE,
+# remplacer par l appel mutualise (6 lignes). Motifs a garder synchro avec la source.
+# Controle de securite COTE SERVEUR — filet de dernier recours.
+#
+# POURQUOI : le controle avant enregistrement (bin/verif-fuites.sh + hook) est contournable de
+# deux facons qu'on ne peut PAS fermer cote poste :
+#   1. `git commit --no-verify` saute le hook, en silence ;
+#   2. un depot fraichement clone n'a aucun hook actif tant que l'installeur n'a pas tourne
+#      (git l'interdit volontairement, pour ne pas executer du code a l'insu du cloneur).
+#
+# ⚠️ CE QUE CE CONTROLE FAIT, ET CE QU'IL NE FAIT PAS — a dire clairement :
+#   Il DETECTE, il n'EMPECHE PAS. Le code est deja sur GitHub quand il s'execute. Il alerte en
+#   moins d'une minute, ce qui permet de reagir (revoquer le secret, nettoyer l'historique) —
+#   mais un secret pousse a ete pousse. Empecher vraiment demanderait la protection de branche
+#   (obligation de passer par une demande de fusion) ou l'offre payante de GitHub.
+#   Ne pas le vendre comme une prevention.
+#
+# Les motifs sont volontairement les MEMES que bin/verif-fuites.sh. Ils existent donc en DEUX
+# endroits, ce qui contredit « une chose = un seul endroit » — c'est assume : la machine GitHub
+# n'a pas acces a nos fichiers. Si tu modifies les motifs ici, modifie-les LA-BAS aussi.
+name: Verification des fuites
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  fuites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Chercher des secrets dans les fichiers modifies
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # Perimetre : ce que ce push ajoute reellement. Sur le tout premier push, on prend tout.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            mapfile -t fichiers < <(git ls-files)
+          else
+            mapfile -t fichiers < <(git diff --name-only "$base" "${{ github.sha }}" 2>/dev/null | grep -v '^$')
+          fi
+          [ ${#fichiers[@]} -eq 0 ] && { echo "aucun fichier modifie"; exit 0; }
+          echo "${#fichiers[@]} fichier(s) a verifier"
+
+          prefixes='(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[A-Za-z0-9_-]{30,}|hf_[A-Za-z0-9]{20,}|sbp_[a-f0-9]{40,}|dop_v1_[a-f0-9]{32,}|SG\.[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJhbGciOi[A-Za-z0-9_-]{10,})'
+          libelles='(api[_-]?key|apikey|access[_-]?key|secret[_-]?key|service[_-]?role|service[_-]?key|anon[_-]?key|auth[_-]?token|bearer|token|password|passwd|pwd|secret|mot[_-]?de[_-]?passe|motdepasse|cle[_-]?api|clef|jeton)'
+          valeur='["'"'"']?[A-Za-z0-9_\-\.\/\+]{16,}'
+
+          faute=0
+          for f in "${fichiers[@]}"; do
+            [ -f "$f" ] || continue
+            case "$(basename "$f")" in verif-fuites.sh|verif-fuites.yml) continue;; esac
+
+            # Binaires : extraire le texte, sinon le controle est aveugle sur PDF et classeurs.
+            cible="$f"; tmp=""
+            case "${f,,}" in
+              *.pdf)
+                if command -v pdftotext >/dev/null 2>&1; then
+                  tmp=$(mktemp); pdftotext -q "$f" "$tmp" 2>/dev/null || true; cible="$tmp"
+                else
+                  echo "::warning file=$f::PDF non verifie (extracteur absent) — NON VERIFIE n'est pas PROPRE"
+                  continue
+                fi ;;
+              *.docx|*.xlsx|*.pptx|*.zip)
+                # NOTE : ecrit en une seule ligne volontairement. Ma 1re version utilisait un bloc
+                # Python non indente au milieu du bloc YAML -> fichier ILLISIBLE par GitHub, qui a
+                # produit une execution en echec AVEC ZERO TACHE. Signature a reconnaitre : le nom
+                # de l execution affiche le CHEMIN du fichier au lieu du nom declare.
+                tmp=$(mktemp)
+                python3 -c "import sys,zipfile,re;z=zipfile.ZipFile(sys.argv[1]);[sys.stdout.write(re.sub(rb'<[^>]+>',b' ',z.read(n)).decode('utf-8','replace')) for n in z.namelist() if n.endswith(('.xml','.rels','.txt','.json'))]" "$f" > "$tmp" 2>/dev/null || true
+                cible="$tmp" ;;
+              *.png|*.jpg|*.jpeg|*.gif|*.webp|*.mp4|*.mp3|*.mov|*.woff*|*.ico)
+                continue ;;   # non scannable par nature : limite assumee
+            esac
+
+            if t=$(grep -nEI "$prefixes" "$cible" 2>/dev/null | head -3); [ -n "${t:-}" ]; then
+              echo "::error file=$f::SECRET (jeton reconnaissable) — interdit partout"
+              echo "$t" | cut -c1-100; faute=1
+            fi
+            if t=$(grep -nEIi "${libelles}[[:space:]]*[=:][[:space:]]*${valeur}" "$cible" 2>/dev/null | head -3); [ -n "${t:-}" ]; then
+              echo "::error file=$f::SECRET (libelle + valeur) — interdit partout"
+              echo "$t" | cut -c1-100; faute=1
+            fi
+            [ -n "$tmp" ] && rm -f "$tmp"
+          done
+
+          if [ $faute -eq 1 ]; then
+            echo ""
+            echo "ECHEC : un secret apparait dans ce push."
+            echo "Le code est DEJA sur GitHub : il faut REVOQUER le secret concerne, pas seulement le retirer."
+            exit 1
+          fi
+          echo "OK : aucun secret detecte."
